@@ -1,0 +1,17 @@
+# DGNet + PhysHGNet comparison requirements
+# Python 3.10 recommended
+
+torch>=2.5.1
+torch-geometric>=2.6.1
+h5py>=3.10.0
+numpy>=1.26.0
+tqdm>=4.66.0
+matplotlib>=3.8.0  # for comparison plots
+
+# CuPy (required by original DGNet for LU factorization)
+# Install the version matching your CUDA:
+#   CUDA 12.x:  cupy-cuda12x
+#   CUDA 11.x:  cupy-cuda11x
+# cupy-cuda12x>=13.6.0
+
+# PhysHGNet uses CG (no CuPy needed for PhysHGNet itself)
