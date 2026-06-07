@@ -1,50 +1,67 @@
 """
-metrics.py — Unified evaluation metrics for PhysHGNet / DGNet.
+metrics.py — 统一的误差度量函数（DGNet / PhysHGNet 共用）。
 
-Two metrics are used everywhere (training logs, ablation, scaling, speed,
-baseline comparison) so numbers are directly comparable:
+train_dgnet.py 通过 `from metrics import mse as mse_metric, rne as rne_metric`
+调用本文件。原仓库缺失此文件会导致 ImportError，这里补齐。
 
-  MSE  : mean squared error              mean( (pred - target)^2 )
-  RNE  : relative L2 (normalised) error  ||pred - target||_2 / ||target||_2
+约定（与 train_*.py / 评测脚本保持一致）：
+    mse(pred, target)  -> float   逐元素均方误差  mean((p-t)^2)
+    rne(pred, target)  -> float   相对 L2 误差     ||p-t||_2 / ||t||_2
+    mae(pred, target)  -> float   逐元素平均绝对误差
+    rmse(pred, target) -> float   sqrt(mse)
 
-Both accept tensors of any matching shape. `which_step` lets callers score a
-particular roll-out step (e.g. the final predicted field) or the whole
-trajectory. All functions are torch-only and grad-free.
+所有函数都接受任意形状、可广播的张量（例如 [B,N,C] 或 [B,T,N,C]），
+内部使用 no_grad，返回 Python float，便于直接累加打印。
 """
-from typing import Dict
+
+from __future__ import annotations
+
 import torch
 
 
+def _as_tensor(x) -> torch.Tensor:
+    if not isinstance(x, torch.Tensor):
+        x = torch.as_tensor(x)
+    return x
+
+
 @torch.no_grad()
-def mse(pred: torch.Tensor, target: torch.Tensor) -> float:
+def mse(pred, target) -> float:
+    """逐元素均方误差 mean((pred - target)^2)。"""
+    pred = _as_tensor(pred).float()
+    target = _as_tensor(target).float()
     return torch.mean((pred - target) ** 2).item()
 
 
 @torch.no_grad()
-def rne(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-8) -> float:
-    """Relative (normalised) L2 error over the flattened tensors."""
+def rmse(pred, target) -> float:
+    """均方根误差 sqrt(MSE)。"""
+    return float(mse(pred, target) ** 0.5)
+
+
+@torch.no_grad()
+def mae(pred, target) -> float:
+    """逐元素平均绝对误差 mean(|pred - target|)。"""
+    pred = _as_tensor(pred).float()
+    target = _as_tensor(target).float()
+    return torch.mean((pred - target).abs()).item()
+
+
+@torch.no_grad()
+def rne(pred, target, eps: float = 1e-8) -> float:
+    """
+    相对 L2 误差（Relative Norm Error）：
+        ||pred - target||_2 / max(||target||_2, eps)
+
+    这是 PDE 算子学习里最常报告的相对误差指标，与 train_physhgnet.py
+    内部的 rel_err 定义完全一致。
+    """
+    pred = _as_tensor(pred).float()
+    target = _as_tensor(target).float()
     num = torch.linalg.vector_norm(pred - target)
     den = torch.linalg.vector_norm(target).clamp(min=eps)
     return (num / den).item()
 
 
-@torch.no_grad()
-def compute_all(pred: torch.Tensor, target: torch.Tensor) -> Dict[str, float]:
-    """Return {'mse':.., 'rne':..} for a (B,T,N,C) / (B,N,C) / (N,) tensor pair."""
-    return {"mse": mse(pred, target), "rne": rne(pred, target)}
-
-
-@torch.no_grad()
-def trajectory_metrics(u_pred: torch.Tensor, u_true: torch.Tensor) -> Dict[str, float]:
-    """
-    Metrics for a full roll-out. Expects (B, T, N, C).
-    Reports both the final-step error (the hardest, long-horizon target) and the
-    mean-over-all-steps error.
-    """
-    assert u_pred.shape == u_true.shape, f"{u_pred.shape} vs {u_true.shape}"
-    out = {}
-    out["mse_final"] = mse(u_pred[:, -1], u_true[:, -1])
-    out["rne_final"] = rne(u_pred[:, -1], u_true[:, -1])
-    out["mse_all"] = mse(u_pred, u_true)
-    out["rne_all"] = rne(u_pred, u_true)
-    return out
+# 便于 `from metrics import *`
+__all__ = ["mse", "rmse", "mae", "rne"]
